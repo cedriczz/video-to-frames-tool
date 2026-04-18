@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>视频转顺序帧工具</title>
+    <meta
+      name="description"
+      content="纯本地浏览器视频转顺序帧工具。拖入视频后按 24 FPS 导出自动命名的 JPG 序列 ZIP，保持原分辨率，目标 150 KB，允许上探到 200 KB，并优先优化处理速度。"
+    />
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <main class="app-card">
+        <section class="hero">
+          <p class="eyebrow">Local-Only Frame Export</p>
+          <h1>视频转顺序帧工具</h1>
+          <p class="hero-copy">
+            把视频直接拖进来，浏览器会在本地按固定 <strong>24 FPS</strong> 抽帧，自动命名并打包成
+            <strong>ZIP</strong> 下载。保持原分辨率不变，优先提升速度，并尽量把每张 JPG 压到
+            <strong>150 KB</strong> 以内，必要时允许落在 <strong>200 KB</strong> 以内。
+          </p>
+          <div class="pill-row">
+            <span class="pill">固定输出 24 FPS</span>
+            <span class="pill">目标 150 KB / 张</span>
+            <span class="pill">上限 200 KB / 张</span>
+            <span class="pill">不改分辨率</span>
+            <span class="pill">速度优先</span>
+          </div>
+        </section>
+
+        <section class="tool-grid">
+          <div class="drop-panel">
+            <label class="dropzone" id="dropzone" for="video-input" tabindex="0">
+              <input id="video-input" type="file" accept="video/*" hidden />
+              <span class="drop-icon" aria-hidden="true">+</span>
+              <strong>拖入视频文件</strong>
+              <span>或点击这里选择视频</span>
+              <small>推荐 Chrome / Edge，优先支持 MP4(H.264) / WebM</small>
+            </label>
+
+            <div class="trust-box">
+              <h2>处理方式</h2>
+              <ul>
+                <li>只在本地浏览器里解码和抽帧</li>
+                <li>自动输出为 24 FPS 对应的顺序帧</li>
+                <li>保持原分辨率，目标 150 KB，允许上探到 200 KB</li>
+                <li>优先走高速抽帧路径，失败时自动回退稳妥方案</li>
+                <li>文件名按 `原视频名_000001.jpg` 递增</li>
+                <li>完成后直接下载 ZIP 包</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="status-panel">
+            <div class="panel-header">
+              <div>
+                <p class="panel-label">当前状态</p>
+                <h2 id="status-title">等待视频</h2>
+              </div>
+              <span class="status-chip" id="status-chip">待处理</span>
+            </div>
+
+            <dl class="meta-grid">
+              <div>
+                <dt>视频文件</dt>
+                <dd id="meta-name">未选择</dd>
+              </div>
+              <div>
+                <dt>分辨率</dt>
+                <dd id="meta-resolution">-</dd>
+              </div>
+              <div>
+                <dt>时长</dt>
+                <dd id="meta-duration">-</dd>
+              </div>
+              <div>
+                <dt>预计帧数</dt>
+                <dd id="meta-frames">-</dd>
+              </div>
+              <div>
+                <dt>导出格式</dt>
+                <dd>JPG + ZIP</dd>
+              </div>
+              <div>
+                <dt>导出命名</dt>
+                <dd id="meta-output">-</dd>
+              </div>
+            </dl>
+
+            <div class="progress-block">
+              <div class="progress-copy">
+                <span id="progress-label">等待开始</span>
+                <span id="progress-value">0%</span>
+              </div>
+              <div class="progress-bar" aria-hidden="true">
+                <div class="progress-bar-fill" id="progress-bar-fill"></div>
+              </div>
+              <p class="progress-note" id="progress-note">
+                拖入视频后会立刻开始抽帧、压缩并打包 ZIP。
+              </p>
+            </div>
+
+            <div class="action-row">
+              <button class="secondary-button" id="select-button" type="button">选择视频</button>
+            </div>
+
+            <div class="notice-box">
+              <h3>实现边界</h3>
+              <p>
+                工具不会主动修改分辨率，会先尝试把每张图压到 150 KB。速度优先时，少数复杂帧可能落在 150 KB 到 200 KB 之间；极少数画面即使降到最低质量，仍可能略高于 200 KB。
+              </p>
+              <p>
+                如果源视频低于 24 FPS，导出的序列仍按 24 FPS 命名与计数，但画面会出现重复帧。
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
