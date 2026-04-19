@@ -97,6 +97,7 @@ select {
 }
 
 .dropzone,
+.settings-card,
 .trust-box,
 .status-panel {
   border: 1px solid rgba(23, 49, 42, 0.08);
@@ -166,9 +167,84 @@ select {
   color: #5e7b73;
 }
 
+.settings-card,
 .trust-box {
   margin-top: 18px;
   padding: 22px 24px;
+}
+
+.settings-card {
+  border: 0;
+}
+
+.settings-card legend {
+  padding: 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #17312a;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.preset-option {
+  position: relative;
+  display: block;
+  cursor: pointer;
+}
+
+.preset-option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.preset-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid rgba(23, 49, 42, 0.1);
+  border-radius: 20px;
+  background: rgba(246, 249, 247, 0.92);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    background 160ms ease;
+}
+
+.preset-option-body strong {
+  font-size: 1rem;
+  color: #17312a;
+}
+
+.preset-option-body small {
+  color: #4c6d63;
+  line-height: 1.6;
+}
+
+.preset-option:hover .preset-option-body,
+.preset-option input:focus-visible + .preset-option-body {
+  transform: translateY(-1px);
+  border-color: rgba(27, 122, 87, 0.26);
+}
+
+.preset-option input:checked + .preset-option-body {
+  border-color: rgba(27, 122, 87, 0.58);
+  background: rgba(220, 246, 237, 0.78);
+  box-shadow: 0 12px 28px rgba(39, 72, 62, 0.08);
+}
+
+.preset-option input:disabled + .preset-option-body {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .trust-box h2,
@@ -322,8 +398,16 @@ select {
   color: #325349;
 }
 
+.notice-box p + p {
+  margin-top: 12px;
+}
+
 @media (max-width: 900px) {
   .tool-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-grid {
     grid-template-columns: 1fr;
   }
 }

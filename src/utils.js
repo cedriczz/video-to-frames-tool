@@ -2,8 +2,48 @@ export const DEFAULT_FPS = 24;
 export const DEFAULT_QUALITY = 0.82;
 export const MIN_QUALITY = 0.2;
 export const FRAME_PADDING = 6;
-export const TARGET_FRAME_SIZE_BYTES = 150 * 1024;
-export const MAX_FRAME_SIZE_BYTES = 200 * 1024;
+
+export const COMPRESSION_PRESETS = [
+  {
+    id: "150k",
+    label: "150K",
+    description: "目标 150 KB，必要时允许到 200 KB",
+    targetFrameBytes: 150 * 1024,
+    maxFrameBytes: 200 * 1024,
+    quality: DEFAULT_QUALITY,
+    minQuality: MIN_QUALITY,
+    unbounded: false,
+  },
+  {
+    id: "500k",
+    label: "500K",
+    description: "目标 500 KB，优先保留更多画质",
+    targetFrameBytes: 500 * 1024,
+    maxFrameBytes: 500 * 1024,
+    quality: 0.9,
+    minQuality: 0.35,
+    unbounded: false,
+  },
+  {
+    id: "none",
+    label: "不压缩",
+    description: "高质量 JPG 直出，不做体积限制",
+    targetFrameBytes: null,
+    maxFrameBytes: null,
+    quality: 0.98,
+    minQuality: 0.98,
+    unbounded: true,
+  },
+];
+
+export const DEFAULT_COMPRESSION_PRESET_ID = COMPRESSION_PRESETS[0].id;
+
+export function getCompressionPreset(presetId) {
+  return (
+    COMPRESSION_PRESETS.find((preset) => preset.id === presetId) ??
+    COMPRESSION_PRESETS[0]
+  );
+}
 
 export function sanitizeBaseName(fileName) {
   const lastDot = fileName.lastIndexOf(".");

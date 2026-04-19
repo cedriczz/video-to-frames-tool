@@ -2,13 +2,13 @@ import JSZip from "jszip";
 
 import {
   buildArchiveName,
+  DEFAULT_COMPRESSION_PRESET_ID,
   DEFAULT_FPS,
   DEFAULT_QUALITY,
   formatFrameName,
-  MAX_FRAME_SIZE_BYTES,
+  getCompressionPreset,
   MIN_QUALITY,
   sanitizeBaseName,
-  TARGET_FRAME_SIZE_BYTES,
 } from "./utils.js";
 
 const SEEK_EPSILON = 0.001;
@@ -190,11 +190,11 @@ async function compressSurfaceToTarget(
   surface,
   compressionState,
   {
-    targetBytes = TARGET_FRAME_SIZE_BYTES,
-    maxBytes = MAX_FRAME_SIZE_BYTES,
-    maxQuality = DEFAULT_QUALITY,
-    minQuality = MIN_QUALITY,
-  } = {},
+    targetBytes,
+    maxBytes,
+    maxQuality,
+    minQuality,
+  },
 ) {
   let quality = clampQuality(
     compressionState.nextQuality ?? maxQuality,
@@ -272,6 +272,36 @@ async function compressSurfaceToTarget(
   };
 }
 
+async function exportSurface(surface, compressionState, compressionPreset) {
+  const maxQuality = compressionPreset.quality ?? DEFAULT_QUALITY;
+  const minQuality = compressionPreset.minQuality ?? MIN_QUALITY;
+
+  if (compressionPreset.unbounded) {
+    const quality = clampQuality(
+      compressionState.nextQuality ?? maxQuality,
+      minQuality,
+      maxQuality,
+    );
+    const blob = await surfaceToBlob(surface, quality);
+
+    compressionState.nextQuality = quality;
+
+    return {
+      blob,
+      quality,
+      withinSoftTarget: true,
+      withinHardTarget: true,
+    };
+  }
+
+  return compressSurfaceToTarget(surface, compressionState, {
+    targetBytes: compressionPreset.targetFrameBytes,
+    maxBytes: compressionPreset.maxFrameBytes,
+    maxQuality,
+    minQuality,
+  });
+}
+
 function shouldReportProgress(processedFrames, totalFrames) {
   return (
     processedFrames === totalFrames ||
@@ -280,22 +310,31 @@ function shouldReportProgress(processedFrames, totalFrames) {
   );
 }
 
-function createCompressionSummary(initialQuality, targetFrameBytes, maxFrameBytes) {
+function createCompressionSummary(compressionPreset) {
   return {
-    targetFrameBytes,
-    maxFrameBytes,
+    presetId: compressionPreset.id,
+    presetLabel: compressionPreset.label,
+    unbounded: compressionPreset.unbounded,
+    targetFrameBytes: compressionPreset.targetFrameBytes,
+    maxFrameBytes: compressionPreset.maxFrameBytes,
     framesWithinSoftTarget: 0,
     framesWithinHardTarget: 0,
     framesOverHardTarget: 0,
     largestFrameBytes: 0,
-    lowestQualityUsed: initialQuality,
-    averageQuality: initialQuality,
+    lowestQualityUsed: compressionPreset.quality ?? DEFAULT_QUALITY,
+    averageQuality: compressionPreset.quality ?? DEFAULT_QUALITY,
   };
 }
 
 function updateCompressionSummary(summary, compressionResult, frameBlob) {
   summary.largestFrameBytes = Math.max(summary.largestFrameBytes, frameBlob.size);
   summary.lowestQualityUsed = Math.min(summary.lowestQualityUsed, compressionResult.quality);
+
+  if (summary.unbounded) {
+    summary.framesWithinSoftTarget += 1;
+    summary.framesWithinHardTarget += 1;
+    return;
+  }
 
   if (compressionResult.withinSoftTarget) {
     summary.framesWithinSoftTarget += 1;
@@ -308,6 +347,38 @@ function updateCompressionSummary(summary, compressionResult, frameBlob) {
   }
 }
 
+function buildProgressPayload({
+  compressionPreset,
+  compressionSummary,
+  video,
+  width,
+  height,
+  totalFrames,
+  processedFrames,
+  archiveName,
+  currentFrameBytes,
+  phase,
+  percent,
+}) {
+  return {
+    phase,
+    duration: video.duration,
+    width,
+    height,
+    totalFrames,
+    processedFrames,
+    percent,
+    archiveName,
+    compressionPresetId: compressionPreset.id,
+    compressionPresetLabel: compressionPreset.label,
+    compressionUnbounded: compressionPreset.unbounded,
+    targetFrameBytes: compressionPreset.targetFrameBytes,
+    maxFrameBytes: compressionPreset.maxFrameBytes,
+    currentFrameBytes,
+    framesOverHardTarget: compressionSummary.framesOverHardTarget,
+  };
+}
+
 async function extractFramesWithSeekingFallback({
   video,
   baseName,
@@ -318,10 +389,7 @@ async function extractFramesWithSeekingFallback({
   archiveName,
   archiveRoot,
   zip,
-  quality,
-  minQuality,
-  targetFrameBytes,
-  maxFrameBytes,
+  compressionPreset,
   compressionSummary,
   onProgress,
 }) {
@@ -331,7 +399,9 @@ async function extractFramesWithSeekingFallback({
     throw new Error("当前浏览器无法初始化 Canvas。");
   }
 
-  const compressionState = { nextQuality: quality };
+  const compressionState = {
+    nextQuality: compressionPreset.quality ?? DEFAULT_QUALITY,
+  };
   let totalQuality = 0;
 
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex += 1) {
@@ -340,12 +410,11 @@ async function extractFramesWithSeekingFallback({
     await seekVideo(video, targetTime);
     context.drawImage(video, 0, 0, width, height);
 
-    const compressionResult = await compressSurfaceToTarget(surface, compressionState, {
-      targetBytes: targetFrameBytes,
-      maxBytes: maxFrameBytes,
-      maxQuality: quality,
-      minQuality,
-    });
+    const compressionResult = await exportSurface(
+      surface,
+      compressionState,
+      compressionPreset,
+    );
     const frameBlob = compressionResult.blob;
     const processedFrames = frameIndex + 1;
     const frameName = formatFrameName(baseName, processedFrames);
@@ -355,20 +424,21 @@ async function extractFramesWithSeekingFallback({
     updateCompressionSummary(compressionSummary, compressionResult, frameBlob);
 
     if (shouldReportProgress(processedFrames, totalFrames)) {
-      onProgress({
-        phase: "extracting",
-        duration: video.duration,
-        width,
-        height,
-        totalFrames,
-        processedFrames,
-        percent: Math.round((processedFrames / totalFrames) * 100),
-        archiveName,
-        targetFrameBytes,
-        maxFrameBytes,
-        currentFrameBytes: frameBlob.size,
-        framesOverHardTarget: compressionSummary.framesOverHardTarget,
-      });
+      onProgress(
+        buildProgressPayload({
+          compressionPreset,
+          compressionSummary,
+          video,
+          width,
+          height,
+          totalFrames,
+          processedFrames,
+          archiveName,
+          currentFrameBytes: frameBlob.size,
+          phase: "extracting",
+          percent: Math.round((processedFrames / totalFrames) * 100),
+        }),
+      );
     }
   }
 
@@ -385,17 +455,16 @@ async function extractFramesWithPlaybackSampling({
   archiveName,
   archiveRoot,
   zip,
-  quality,
-  minQuality,
-  targetFrameBytes,
-  maxFrameBytes,
+  compressionPreset,
   compressionSummary,
   onProgress,
 }) {
   const interval = 1 / fps;
   const tolerance = interval / 2;
   const { surface: encodeSurface, context: encodeContext } = createRenderSurface(width, height);
-  const compressionState = { nextQuality: quality };
+  const compressionState = {
+    nextQuality: compressionPreset.quality ?? DEFAULT_QUALITY,
+  };
   const queue = [];
   let totalQuality = 0;
   let enqueuedFrames = 0;
@@ -452,15 +521,10 @@ async function extractFramesWithPlaybackSampling({
           for (let repeatIndex = 0; repeatIndex < task.repeatCount; repeatIndex += 1) {
             encodeContext.drawImage(task.imageBitmap, 0, 0, width, height);
 
-            const compressionResult = await compressSurfaceToTarget(
+            const compressionResult = await exportSurface(
               encodeSurface,
               compressionState,
-              {
-                targetBytes: targetFrameBytes,
-                maxBytes: maxFrameBytes,
-                maxQuality: quality,
-                minQuality,
-              },
+              compressionPreset,
             );
             const frameBlob = compressionResult.blob;
             const frameName = formatFrameName(baseName, processedFrames + 1);
@@ -471,20 +535,21 @@ async function extractFramesWithPlaybackSampling({
             processedFrames += 1;
 
             if (shouldReportProgress(processedFrames, totalFrames)) {
-              onProgress({
-                phase: "extracting",
-                duration: video.duration,
-                width,
-                height,
-                totalFrames,
-                processedFrames,
-                percent: Math.round((processedFrames / totalFrames) * 100),
-                archiveName,
-                targetFrameBytes,
-                maxFrameBytes,
-                currentFrameBytes: frameBlob.size,
-                framesOverHardTarget: compressionSummary.framesOverHardTarget,
-              });
+              onProgress(
+                buildProgressPayload({
+                  compressionPreset,
+                  compressionSummary,
+                  video,
+                  width,
+                  height,
+                  totalFrames,
+                  processedFrames,
+                  archiveName,
+                  currentFrameBytes: frameBlob.size,
+                  phase: "extracting",
+                  percent: Math.round((processedFrames / totalFrames) * 100),
+                }),
+              );
             }
           }
 
@@ -592,17 +657,26 @@ async function extractFramesWithPlaybackSampling({
 export async function extractFramesToZip({
   file,
   fps = DEFAULT_FPS,
-  quality = DEFAULT_QUALITY,
-  minQuality = MIN_QUALITY,
-  targetFrameBytes = TARGET_FRAME_SIZE_BYTES,
-  maxFrameBytes = MAX_FRAME_SIZE_BYTES,
+  compressionPreset = DEFAULT_COMPRESSION_PRESET_ID,
   onProgress = () => {},
 }) {
+  const resolvedCompressionPreset =
+    typeof compressionPreset === "string"
+      ? getCompressionPreset(compressionPreset)
+      : getCompressionPreset(compressionPreset?.id);
   const video = createHiddenVideo(file);
   const baseName = sanitizeBaseName(file.name);
 
   try {
-    onProgress({ phase: "loading", percent: 2, targetFrameBytes, maxFrameBytes });
+    onProgress({
+      phase: "loading",
+      percent: 2,
+      compressionPresetId: resolvedCompressionPreset.id,
+      compressionPresetLabel: resolvedCompressionPreset.label,
+      compressionUnbounded: resolvedCompressionPreset.unbounded,
+      targetFrameBytes: resolvedCompressionPreset.targetFrameBytes,
+      maxFrameBytes: resolvedCompressionPreset.maxFrameBytes,
+    });
 
     await waitForEvent(video, "loadedmetadata", {
       timeoutMessage: "视频元数据读取超时，请尝试 MP4(H.264) 或 WebM。",
@@ -626,23 +700,24 @@ export async function extractFramesToZip({
     const archiveName = buildArchiveName(baseName, fps);
     const archiveRoot = `${baseName}_${fps}fps_frames/`;
 
-    onProgress({
-      phase: "extracting",
-      duration: video.duration,
-      width,
-      height,
-      totalFrames,
-      processedFrames: 0,
-      percent: 0,
-      archiveName,
-      targetFrameBytes,
-      maxFrameBytes,
-      currentFrameBytes: 0,
-      framesOverHardTarget: 0,
-    });
+    onProgress(
+      buildProgressPayload({
+        compressionPreset: resolvedCompressionPreset,
+        compressionSummary: createCompressionSummary(resolvedCompressionPreset),
+        video,
+        width,
+        height,
+        totalFrames,
+        processedFrames: 0,
+        archiveName,
+        currentFrameBytes: 0,
+        phase: "extracting",
+        percent: 0,
+      }),
+    );
 
     let zip = new JSZip();
-    let compressionSummary = createCompressionSummary(quality, targetFrameBytes, maxFrameBytes);
+    let compressionSummary = createCompressionSummary(resolvedCompressionPreset);
 
     try {
       if (
@@ -659,10 +734,7 @@ export async function extractFramesToZip({
           archiveName,
           archiveRoot,
           zip,
-          quality,
-          minQuality,
-          targetFrameBytes,
-          maxFrameBytes,
+          compressionPreset: resolvedCompressionPreset,
           compressionSummary,
           onProgress,
         });
@@ -677,10 +749,7 @@ export async function extractFramesToZip({
           archiveName,
           archiveRoot,
           zip,
-          quality,
-          minQuality,
-          targetFrameBytes,
-          maxFrameBytes,
+          compressionPreset: resolvedCompressionPreset,
           compressionSummary,
           onProgress,
         });
@@ -700,7 +769,7 @@ export async function extractFramesToZip({
       await ensureFrameReady();
 
       zip = new JSZip();
-      compressionSummary = createCompressionSummary(quality, targetFrameBytes, maxFrameBytes);
+      compressionSummary = createCompressionSummary(resolvedCompressionPreset);
 
       await extractFramesWithSeekingFallback({
         video,
@@ -712,29 +781,27 @@ export async function extractFramesToZip({
         archiveName,
         archiveRoot,
         zip,
-        quality,
-        minQuality,
-        targetFrameBytes,
-        maxFrameBytes,
+        compressionPreset: resolvedCompressionPreset,
         compressionSummary,
         onProgress,
       });
     }
 
-    onProgress({
-      phase: "zipping",
-      duration: video.duration,
-      width,
-      height,
-      totalFrames,
-      processedFrames: totalFrames,
-      percent: 100,
-      archiveName,
-      targetFrameBytes,
-      maxFrameBytes,
-      currentFrameBytes: compressionSummary.largestFrameBytes,
-      framesOverHardTarget: compressionSummary.framesOverHardTarget,
-    });
+    onProgress(
+      buildProgressPayload({
+        compressionPreset: resolvedCompressionPreset,
+        compressionSummary,
+        video,
+        width,
+        height,
+        totalFrames,
+        processedFrames: totalFrames,
+        archiveName,
+        currentFrameBytes: compressionSummary.largestFrameBytes,
+        phase: "zipping",
+        percent: 100,
+      }),
+    );
 
     const zipBlob = await zip.generateAsync(
       {
@@ -743,20 +810,21 @@ export async function extractFramesToZip({
         streamFiles: true,
       },
       (metadata) => {
-        onProgress({
-          phase: "zipping",
-          duration: video.duration,
-          width,
-          height,
-          totalFrames,
-          processedFrames: totalFrames,
-          percent: Math.round(metadata.percent),
-          archiveName,
-          targetFrameBytes,
-          maxFrameBytes,
-          currentFrameBytes: compressionSummary.largestFrameBytes,
-          framesOverHardTarget: compressionSummary.framesOverHardTarget,
-        });
+        onProgress(
+          buildProgressPayload({
+            compressionPreset: resolvedCompressionPreset,
+            compressionSummary,
+            video,
+            width,
+            height,
+            totalFrames,
+            processedFrames: totalFrames,
+            archiveName,
+            currentFrameBytes: compressionSummary.largestFrameBytes,
+            phase: "zipping",
+            percent: Math.round(metadata.percent),
+          }),
+        );
       },
     );
 
@@ -769,6 +837,7 @@ export async function extractFramesToZip({
       height,
       totalFrames,
       compressionSummary,
+      compressionPreset: resolvedCompressionPreset,
     };
   } finally {
     URL.revokeObjectURL(video.src);

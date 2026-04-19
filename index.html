@@ -6,7 +6,7 @@
     <title>视频转顺序帧工具</title>
     <meta
       name="description"
-      content="纯本地浏览器视频转顺序帧工具。拖入视频后按 24 FPS 导出自动命名的 JPG 序列 ZIP，保持原分辨率，目标 150 KB，允许上探到 200 KB，并优先优化处理速度。"
+      content="纯本地浏览器视频转顺序帧工具。拖入视频后按 24 FPS 导出自动命名的 JPG 序列 ZIP，支持 150K、500K 和不压缩三种导出模式，并保持原分辨率不变。"
     />
     <script type="module" src="/src/main.js"></script>
   </head>
@@ -18,14 +18,15 @@
           <h1>视频转顺序帧工具</h1>
           <p class="hero-copy">
             把视频直接拖进来，浏览器会在本地按固定 <strong>24 FPS</strong> 抽帧，自动命名并打包成
-            <strong>ZIP</strong> 下载。保持原分辨率不变，优先提升速度，并尽量把每张 JPG 压到
-            <strong>150 KB</strong> 以内，必要时允许落在 <strong>200 KB</strong> 以内。
+            <strong>ZIP</strong> 下载。保持原分辨率不变，现在可以在
+            <strong>150K</strong>、<strong>500K</strong> 和 <strong>不压缩</strong>
+            之间切换。
           </p>
           <div class="pill-row">
             <span class="pill">固定输出 24 FPS</span>
-            <span class="pill">目标 150 KB / 张</span>
-            <span class="pill">上限 200 KB / 张</span>
+            <span class="pill">150K / 500K / 不压缩</span>
             <span class="pill">不改分辨率</span>
+            <span class="pill">ZIP 自动下载</span>
             <span class="pill">速度优先</span>
           </div>
         </section>
@@ -40,14 +41,43 @@
               <small>推荐 Chrome / Edge，优先支持 MP4(H.264) / WebM</small>
             </label>
 
+            <fieldset class="settings-card">
+              <legend>压缩大小</legend>
+              <div class="settings-grid">
+                <label class="preset-option">
+                  <input type="radio" name="compression-preset" value="150k" checked />
+                  <span class="preset-option-body">
+                    <strong>150K</strong>
+                    <small>目标 150 KB，必要时允许到 200 KB</small>
+                  </span>
+                </label>
+
+                <label class="preset-option">
+                  <input type="radio" name="compression-preset" value="500k" />
+                  <span class="preset-option-body">
+                    <strong>500K</strong>
+                    <small>目标 500 KB，优先保留更多画质</small>
+                  </span>
+                </label>
+
+                <label class="preset-option">
+                  <input type="radio" name="compression-preset" value="none" />
+                  <span class="preset-option-body">
+                    <strong>不压缩</strong>
+                    <small>高质量 JPG 直出，不做体积限制</small>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
             <div class="trust-box">
               <h2>处理方式</h2>
               <ul>
                 <li>只在本地浏览器里解码和抽帧</li>
                 <li>自动输出为 24 FPS 对应的顺序帧</li>
-                <li>保持原分辨率，目标 150 KB，允许上探到 200 KB</li>
+                <li>压缩大小可选 150K、500K 或不压缩</li>
+                <li>保持原分辨率，文件名按 `原视频名_000001.jpg` 递增</li>
                 <li>优先走高速抽帧路径，失败时自动回退稳妥方案</li>
-                <li>文件名按 `原视频名_000001.jpg` 递增</li>
                 <li>完成后直接下载 ZIP 包</li>
               </ul>
             </div>
@@ -80,6 +110,10 @@
                 <dd id="meta-frames">-</dd>
               </div>
               <div>
+                <dt>压缩模式</dt>
+                <dd id="meta-compression">150K（上限 200.0 KB）</dd>
+              </div>
+              <div>
                 <dt>导出格式</dt>
                 <dd>JPG + ZIP</dd>
               </div>
@@ -98,7 +132,7 @@
                 <div class="progress-bar-fill" id="progress-bar-fill"></div>
               </div>
               <p class="progress-note" id="progress-note">
-                拖入视频后会立刻开始抽帧、压缩并打包 ZIP。
+                拖入视频后会立刻开始抽帧并导出 ZIP。
               </p>
             </div>
 
@@ -109,7 +143,11 @@
             <div class="notice-box">
               <h3>实现边界</h3>
               <p>
-                工具不会主动修改分辨率，会先尝试把每张图压到 150 KB。速度优先时，少数复杂帧可能落在 150 KB 到 200 KB 之间；极少数画面即使降到最低质量，仍可能略高于 200 KB。
+                `150K` 档会优先尝试把每张图压到 150 KB，复杂帧必要时允许落在 200 KB 以内；`500K`
+                档会尽量控制在 500 KB 内；`不压缩` 档不会做体积限制，而是高质量 JPG 直接导出。
+              </p>
+              <p>
+                这里的“`不压缩`”仍然是 JPG 输出，不等于真正无损；如果你之后要做无损导出，需要单独加 PNG 这一条能力。
               </p>
               <p>
                 如果源视频低于 24 FPS，导出的序列仍按 24 FPS 命名与计数，但画面会出现重复帧。
